@@ -48,7 +48,7 @@ public class TestHBaseConfiguration {
 
   private static final Logger LOG = LoggerFactory.getLogger(TestHBaseConfiguration.class);
 
-  private static HBaseCommonTestingUtility UTIL = new HBaseCommonTestingUtility();
+  private static HBaseCommonTestingUtil UTIL = new HBaseCommonTestingUtil();
 
   @AfterClass
   public static void tearDown() throws IOException {
@@ -137,17 +137,13 @@ public class TestHBaseConfiguration {
   public void testDeprecatedConfigurations() {
     // Configuration.addDeprecations before create Configuration object
     Configuration.addDeprecations(new Configuration.DeprecationDelta[]{
-      new Configuration.DeprecationDelta("hbase.deprecated.conf", "hbase.new.conf")
+      new Configuration.DeprecationDelta("hbase.deprecated.conf", "hbase.new.conf"),
+      new Configuration.DeprecationDelta("hbase.deprecated.conf2", "hbase.new.conf2")
     });
     Configuration conf = HBaseConfiguration.create();
     conf.addResource("hbase-deprecated-conf.xml");
     assertEquals("1000", conf.get("hbase.new.conf"));
-
-    // Configuration.addDeprecations after create Configuration object
-    Configuration.addDeprecations(new Configuration.DeprecationDelta[]{
-      new Configuration.DeprecationDelta("hbase.deprecated.conf2", "hbase.new.conf2")
-    });
-    assertNull(conf.get("hbase.new.conf2"));
+    assertEquals("1000", conf.get("hbase.new.conf2"));
   }
 
   private static class ReflectiveCredentialProviderClient {

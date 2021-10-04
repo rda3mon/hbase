@@ -31,6 +31,9 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.ServerName;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.hbase.HBaseInterfaceAudience;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.backup.BackupInfo;
 import org.apache.hadoop.hbase.backup.BackupRestoreConstants;
@@ -51,6 +54,7 @@ import org.apache.hadoop.hbase.wal.AbstractFSWALProvider;
 import org.apache.yetus.audience.InterfaceAudience;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.hbase.thirdparty.org.apache.commons.collections4.IterableUtils;
 import org.apache.hbase.thirdparty.org.apache.commons.collections4.MapUtils;
 
 /**
@@ -116,6 +120,17 @@ public class BackupLogCleaner extends BaseLogCleanerDelegate {
 
 
 
+    Map<TableName, Long> tableNameBackupInfoMap = new HashMap<>();
+    for (BackupInfo backupInfo : backups) {
+      for (TableName table : backupInfo.getTables()) {
+        tableNameBackupInfoMap.putIfAbsent(table, backupInfo.getStartTs());
+        if (tableNameBackupInfoMap.get(table) <= backupInfo.getStartTs()) {
+          tableNameBackupInfoMap.put(table, backupInfo.getStartTs());
+          for (Map.Entry<String, Long> entry : backupInfo.getTableSetTimestampMap().get(table)
+            .entrySet()) {
+            serverAddressToLastBackupMap.put(Address.fromString(entry.getKey()), entry.getValue());
+          }
+        }
       }
     }
 

@@ -50,6 +50,8 @@ import org.apache.hadoop.hbase.master.balancer.LoadBalancerFactory;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureConstants;
 import org.apache.hadoop.hbase.master.procedure.MasterProcedureEnv;
 import org.apache.hadoop.hbase.master.procedure.RSProcedureDispatcher;
+import org.apache.hadoop.hbase.master.region.MasterRegion;
+import org.apache.hadoop.hbase.master.region.MasterRegionFactory;
 import org.apache.hadoop.hbase.procedure2.ProcedureEvent;
 import org.apache.hadoop.hbase.procedure2.ProcedureExecutor;
 import org.apache.hadoop.hbase.procedure2.ProcedureTestingUtility;
@@ -58,6 +60,7 @@ import org.apache.hadoop.hbase.procedure2.store.ProcedureStore;
 import org.apache.hadoop.hbase.procedure2.store.ProcedureStore.ProcedureStoreListener;
 import org.apache.hadoop.hbase.security.Superusers;
 import org.apache.hadoop.hbase.util.CommonFSUtils;
+import org.apache.hadoop.hbase.util.EnvironmentEdgeManager;
 import org.apache.zookeeper.KeeperException;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
@@ -84,6 +87,7 @@ public class MockMasterServices extends MockNoopMasterServices {
   private final SplitWALManager splitWALManager;
   private final AssignmentManager assignmentManager;
   private final TableStateManager tableStateManager;
+  private final MasterRegion masterRegion;
 
   private MasterProcedureEnv procedureEnv;
   private ProcedureExecutor<MasterProcedureEnv> procedureExecutor;
@@ -106,9 +110,10 @@ public class MockMasterServices extends MockNoopMasterServices {
     this.splitWALManager =
       conf.getBoolean(HBASE_SPLIT_WAL_COORDINATED_BY_ZK, DEFAULT_HBASE_SPLIT_COORDINATED_BY_ZK)?
         null: new SplitWALManager(this);
-
+    this.masterRegion = MasterRegionFactory.create(this);
     // Mock an AM.
-    this.assignmentManager = new AssignmentManager(this, new MockRegionStateStore(this));
+    this.assignmentManager =
+      new AssignmentManager(this, masterRegion, new MockRegionStateStore(this, masterRegion));
     this.balancer = LoadBalancerFactory.getLoadBalancer(conf);
     this.serverManager = new ServerManager(this);
     this.tableStateManager = Mockito.mock(TableStateManager.class);
@@ -149,7 +154,7 @@ public class MockMasterServices extends MockNoopMasterServices {
     for (int i = 0; i < numServes; ++i) {
       ServerName sn = ServerName.valueOf("localhost", 100 + i, 1);
       serverManager.regionServerReport(sn, ServerMetricsBuilder.newBuilder(sn)
-        .setLastReportTimestamp(System.currentTimeMillis()).build());
+        .setLastReportTimestamp(EnvironmentEdgeManager.currentTime()).build());
     }
     this.procedureExecutor.getEnvironment().setEventReady(initialized, true);
   }
@@ -176,7 +181,7 @@ public class MockMasterServices extends MockNoopMasterServices {
     }
     ServerName sn = ServerName.valueOf(serverName.getAddress().toString(), startCode);
     serverManager.regionServerReport(sn, ServerMetricsBuilder.newBuilder(sn)
-      .setLastReportTimestamp(System.currentTimeMillis()).build());
+      .setLastReportTimestamp(EnvironmentEdgeManager.currentTime()).build());
   }
 
   @Override
@@ -289,8 +294,8 @@ public class MockMasterServices extends MockNoopMasterServices {
   }
 
   private static class MockRegionStateStore extends RegionStateStore {
-    public MockRegionStateStore(final MasterServices master) {
-      super(master);
+    public MockRegionStateStore(MasterServices master, MasterRegion masterRegion) {
+      super(master, masterRegion);
     }
 
     @Override

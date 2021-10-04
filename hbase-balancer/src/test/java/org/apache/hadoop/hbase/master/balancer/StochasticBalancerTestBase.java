@@ -39,6 +39,8 @@ public class StochasticBalancerTestBase extends BalancerTestBase {
 
   protected static StochasticLoadBalancer loadBalancer;
 
+  protected static DummyMetricsStochasticBalancer dummyMetricsStochasticBalancer = new DummyMetricsStochasticBalancer();
+
   @BeforeClass
   public static void beforeAllTests() throws Exception {
     conf = HBaseConfiguration.create();
@@ -46,8 +48,8 @@ public class StochasticBalancerTestBase extends BalancerTestBase {
     conf.setFloat("hbase.master.balancer.stochastic.maxMovePercent", 0.75f);
     conf.setFloat("hbase.regions.slop", 0.0f);
     conf.setFloat("hbase.master.balancer.stochastic.localityCost", 0);
-    conf.setLong(StochasticLoadBalancer.MAX_RUNNING_TIME_KEY, 3 * 60 * 1000L);
-    loadBalancer = new StochasticLoadBalancer();
+    conf.setBoolean("hbase.master.balancer.stochastic.runMaxSteps", true);
+    loadBalancer = new StochasticLoadBalancer(dummyMetricsStochasticBalancer);
     loadBalancer.setClusterInfoProvider(new DummyClusterInfoProvider(conf));
     loadBalancer.initialize();
   }

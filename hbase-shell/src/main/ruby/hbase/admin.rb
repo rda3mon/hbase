@@ -30,6 +30,8 @@ java_import org.apache.hadoop.hbase.client.CoprocessorDescriptorBuilder
 java_import org.apache.hadoop.hbase.client.TableDescriptorBuilder
 java_import org.apache.hadoop.hbase.HConstants
 
+require 'hbase/balancer_utils'
+
 # Wrapper for org.apache.hadoop.hbase.client.HBaseAdmin
 
 module Hbase
@@ -230,9 +232,10 @@ module Hbase
 
     #----------------------------------------------------------------------------------------------
     # Requests a cluster balance
-    # Returns true if balancer ran
-    def balancer(force)
-      @admin.balance(java.lang.Boolean.valueOf(force))
+    # Returns BalanceResponse with details of the balancer run
+    def balancer(*args)
+      request = ::Hbase::BalancerUtils.create_balance_request(args)
+      @admin.balance(request)
     end
 
     #----------------------------------------------------------------------------------------------
@@ -1514,7 +1517,13 @@ module Hbase
       tdb.setMergeEnabled(JBoolean.valueOf(arg.delete(TableDescriptorBuilder::MERGE_ENABLED))) if arg.include?(TableDescriptorBuilder::MERGE_ENABLED)
       tdb.setNormalizationEnabled(JBoolean.valueOf(arg.delete(TableDescriptorBuilder::NORMALIZATION_ENABLED))) if arg.include?(TableDescriptorBuilder::NORMALIZATION_ENABLED)
       tdb.setNormalizerTargetRegionCount(JInteger.valueOf(arg.delete(TableDescriptorBuilder::NORMALIZER_TARGET_REGION_COUNT))) if arg.include?(TableDescriptorBuilder::NORMALIZER_TARGET_REGION_COUNT)
-      tdb.setNormalizerTargetRegionSize(JLong.valueOf(arg.delete(TableDescriptorBuilder::NORMALIZER_TARGET_REGION_SIZE))) if arg.include?(TableDescriptorBuilder::NORMALIZER_TARGET_REGION_SIZE)
+      # TODO: Keeping backward compatability for NORMALIZER_TARGET_REGION_SIZE with HBASE-25651 change. Can be removed in later version
+      if arg.include?(TableDescriptorBuilder::NORMALIZER_TARGET_REGION_SIZE)
+        warn 'Use of NORMALIZER_TARGET_REGION_SIZE has been deprecated and will be removed in future version, please use NORMALIZER_TARGET_REGION_SIZE_MB instead'
+        tdb.setNormalizerTargetRegionSize(JLong.valueOf(arg.delete(TableDescriptorBuilder::NORMALIZER_TARGET_REGION_SIZE)))
+      end
+      tdb.setNormalizerTargetRegionSize(JLong.valueOf(arg.delete(TableDescriptorBuilder::NORMALIZER_TARGET_REGION_SIZE_MB))) \
+        if arg.include?(TableDescriptorBuilder::NORMALIZER_TARGET_REGION_SIZE_MB)
       tdb.setMemStoreFlushSize(arg.delete(TableDescriptorBuilder::MEMSTORE_FLUSHSIZE)) if arg.include?(TableDescriptorBuilder::MEMSTORE_FLUSHSIZE)
       tdb.setDurability(org.apache.hadoop.hbase.client.Durability.valueOf(arg.delete(TableDescriptorBuilder::DURABILITY))) if arg.include?(TableDescriptorBuilder::DURABILITY)
       tdb.setPriority(JInteger.valueOf(arg.delete(TableDescriptorBuilder::PRIORITY))) if arg.include?(TableDescriptorBuilder::PRIORITY)

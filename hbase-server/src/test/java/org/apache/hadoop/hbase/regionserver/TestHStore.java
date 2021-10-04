@@ -43,12 +43,17 @@ import java.util.NavigableSet;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.IntBinaryOperator;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
@@ -65,7 +70,7 @@ import org.apache.hadoop.hbase.CellComparatorImpl;
 import org.apache.hadoop.hbase.CellUtil;
 import org.apache.hadoop.hbase.HBaseClassTestRule;
 import org.apache.hadoop.hbase.HBaseConfiguration;
-import org.apache.hadoop.hbase.HBaseTestingUtility;
+import org.apache.hadoop.hbase.HBaseTestingUtil;
 import org.apache.hadoop.hbase.HConstants;
 import org.apache.hadoop.hbase.KeyValue;
 import org.apache.hadoop.hbase.MemoryCompactionPolicy;
@@ -154,17 +159,12 @@ public class TestHStore {
   List<Cell> expected = new ArrayList<>();
   List<Cell> result = new ArrayList<>();
 
-  long id = System.currentTimeMillis();
+  long id = EnvironmentEdgeManager.currentTime();
   Get get = new Get(row);
 
-  private static final HBaseTestingUtility TEST_UTIL = new HBaseTestingUtility();
+  private static final HBaseTestingUtil TEST_UTIL = new HBaseTestingUtil();
   private static final String DIR = TEST_UTIL.getDataTestDir("TestStore").toString();
 
-
-  /**
-   * Setup
-   * @throws IOException
-   */
   @Before
   public void setUp() throws IOException {
     qualifiers.clear();
@@ -244,7 +244,6 @@ public class TestHStore {
   /**
    * Test we do not lose data if we fail a flush and then close.
    * Part of HBase-10466
-   * @throws Exception
    */
   @Test
   public void testFlushSizeSizing() throws Exception {
@@ -346,7 +345,7 @@ public class TestHStore {
     testDeleteExpiredStoreFiles(1);
   }
 
-  /*
+  /**
    * @param minVersions the MIN_VERSIONS for the column family
    */
   public void testDeleteExpiredStoreFiles(int minVersions) throws Exception {
@@ -471,9 +470,9 @@ public class TestHStore {
   //////////////////////////////////////////////////////////////////////////////
 
   private static final int BLOCKSIZE_SMALL = 8192;
+
   /**
    * Test for hbase-1686.
-   * @throws IOException
    */
   @Test
   public void testEmptyStoreFile() throws IOException {
@@ -503,7 +502,7 @@ public class TestHStore {
         new HStore(this.store.getHRegion(), this.store.getColumnFamilyDescriptor(), c, false);
     assertEquals(2, this.store.getStorefilesCount());
 
-    result = HBaseTestingUtility.getFromStoreFile(store,
+    result = HBaseTestingUtil.getFromStoreFile(store,
         get.getRow(),
         qualifiers);
     assertEquals(1, result.size());
@@ -511,7 +510,6 @@ public class TestHStore {
 
   /**
    * Getting data from memstore only
-   * @throws IOException
    */
   @Test
   public void testGet_FromMemStoreOnly() throws IOException {
@@ -526,7 +524,7 @@ public class TestHStore {
     this.store.add(new KeyValue(row, family, qf6, 1, (byte[])null), null);
 
     //Get
-    result = HBaseTestingUtility.getFromStoreFile(store,
+    result = HBaseTestingUtil.getFromStoreFile(store,
         get.getRow(), qualifiers);
 
     //Compare
@@ -566,7 +564,6 @@ public class TestHStore {
 
   /**
    * Getting data from files only
-   * @throws IOException
    */
   @Test
   public void testGet_FromFilesOnly() throws IOException {
@@ -591,7 +588,7 @@ public class TestHStore {
     flush(3);
 
     //Get
-    result = HBaseTestingUtility.getFromStoreFile(store,
+    result = HBaseTestingUtil.getFromStoreFile(store,
         get.getRow(),
         qualifiers);
     //this.store.get(get, qualifiers, result);
@@ -605,7 +602,6 @@ public class TestHStore {
 
   /**
    * Getting data from memstore and files
-   * @throws IOException
    */
   @Test
   public void testGet_FromMemStoreAndFiles() throws IOException {
@@ -628,7 +624,7 @@ public class TestHStore {
     this.store.add(new KeyValue(row, family, qf6, 1, (byte[])null), null);
 
     //Get
-    result = HBaseTestingUtility.getFromStoreFile(store,
+    result = HBaseTestingUtil.getFromStoreFile(store,
         get.getRow(), qualifiers);
 
     //Need to sort the result since multiple files
@@ -638,8 +634,7 @@ public class TestHStore {
     assertCheck();
   }
 
-  private void flush(int storeFilessize) throws IOException{
-    this.store.snapshot();
+  private void flush(int storeFilessize) throws IOException {
     flushStore(store, id++);
     assertEquals(storeFilessize, this.store.getStorefiles().size());
     assertEquals(0, ((AbstractMemStore)this.store.memstore).getActive().getCellsCount());
@@ -734,7 +729,7 @@ public class TestHStore {
 
     public FaultyFileSystem() {
       super(new LocalFileSystem());
-      System.err.println("Creating faulty!");
+      LOG.info("Creating faulty!");
     }
 
     @Override
@@ -773,7 +768,7 @@ public class TestHStore {
 
     @Override
     public synchronized void write(byte[] buf, int offset, int length) throws IOException {
-      System.err.println("faulty stream write at pos " + getPos());
+      LOG.info("faulty stream write at pos " + getPos());
       injectFault();
       super.write(buf, offset, length);
     }
@@ -794,13 +789,9 @@ public class TestHStore {
 
   /**
    * Generate a list of KeyValues for testing based on given parameters
-   * @param timestamps
-   * @param numRows
-   * @param qualifier
-   * @param family
    * @return the rows key-value list
    */
-  List<Cell> getKeyValueSet(long[] timestamps, int numRows,
+  private List<Cell> getKeyValueSet(long[] timestamps, int numRows,
       byte[] qualifier, byte[] family) {
     List<Cell> kvList = new ArrayList<>();
     for (int i=1;i<=numRows;i++) {
@@ -814,7 +805,6 @@ public class TestHStore {
 
   /**
    * Test to ensure correctness when using Stores with multiple timestamps
-   * @throws IOException
    */
   @Test
   public void testMultipleTimestamps() throws IOException {
@@ -829,7 +819,6 @@ public class TestHStore {
       this.store.add(kv, null);
     }
 
-    this.store.snapshot();
     flushStore(store, id++);
 
     List<Cell> kvList2 = getKeyValueSet(timestamps2,numRows, qf1, family);
@@ -842,27 +831,27 @@ public class TestHStore {
     get.addColumn(family,qf1);
 
     get.setTimeRange(0,15);
-    result = HBaseTestingUtility.getFromStoreFile(store, get);
+    result = HBaseTestingUtil.getFromStoreFile(store, get);
     assertTrue(result.size()>0);
 
     get.setTimeRange(40,90);
-    result = HBaseTestingUtility.getFromStoreFile(store, get);
+    result = HBaseTestingUtil.getFromStoreFile(store, get);
     assertTrue(result.size()>0);
 
     get.setTimeRange(10,45);
-    result = HBaseTestingUtility.getFromStoreFile(store, get);
+    result = HBaseTestingUtil.getFromStoreFile(store, get);
     assertTrue(result.size()>0);
 
     get.setTimeRange(80,145);
-    result = HBaseTestingUtility.getFromStoreFile(store, get);
+    result = HBaseTestingUtil.getFromStoreFile(store, get);
     assertTrue(result.size()>0);
 
     get.setTimeRange(1,2);
-    result = HBaseTestingUtility.getFromStoreFile(store, get);
+    result = HBaseTestingUtil.getFromStoreFile(store, get);
     assertTrue(result.size()>0);
 
     get.setTimeRange(90,200);
-    result = HBaseTestingUtility.getFromStoreFile(store, get);
+    result = HBaseTestingUtil.getFromStoreFile(store, get);
     assertTrue(result.size()==0);
   }
 
@@ -1027,7 +1016,7 @@ public class TestHStore {
     assertEquals(0, this.store.getStorefilesCount());
 
     // add some data, flush
-    this.store.add(new KeyValue(row, family, qf1, 1, (byte[])null), null);
+    this.store.add(new KeyValue(row, family, qf1, 1, (byte[]) null), null);
     flush(1);
     // add one more file
     addStoreFile();
@@ -1042,23 +1031,22 @@ public class TestHStore {
     // call second time
     spiedStore.refreshStoreFiles();
 
-    //ensure that replaceStoreFiles is not called if files are not refreshed
-    verify(spiedStore, times(0)).replaceStoreFiles(null, null);
+    // ensure that replaceStoreFiles is not called, i.e, the times does not change, if files are not
+    // refreshed,
+    verify(spiedStore, times(1)).replaceStoreFiles(any(), any());
   }
 
   private long countMemStoreScanner(StoreScanner scanner) {
     if (scanner.currentScanners == null) {
       return 0;
     }
-    return scanner.currentScanners.stream()
-            .filter(s -> !s.isFileScanner())
-            .count();
+    return scanner.currentScanners.stream().filter(s -> !s.isFileScanner()).count();
   }
 
   @Test
   public void testNumberOfMemStoreScannersAfterFlush() throws IOException {
     long seqId = 100;
-    long timestamp = System.currentTimeMillis();
+    long timestamp = EnvironmentEdgeManager.currentTime();
     Cell cell0 = CellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(row).setFamily(family)
         .setQualifier(qf1).setTimestamp(timestamp).setType(Cell.Type.Put)
         .setValue(qf1).build();
@@ -1072,7 +1060,7 @@ public class TestHStore {
     testNumberOfMemStoreScannersAfterFlush(Arrays.asList(cell0), Arrays.asList(cell1));
 
     seqId = 101;
-    timestamp = System.currentTimeMillis();
+    timestamp = EnvironmentEdgeManager.currentTime();
     Cell cell2 = CellBuilderFactory.create(CellBuilderType.DEEP_COPY).setRow(row2).setFamily(family)
         .setQualifier(qf2).setTimestamp(timestamp).setType(Cell.Type.Put)
         .setValue(qf1).build();
@@ -1468,8 +1456,6 @@ public class TestHStore {
    * may change the versionedList. And the first InMemoryFlushRunnable will use the chagned
    * versionedList to remove the corresponding segments.
    * In short, there will be some segements which isn't in merge are removed.
-   * @throws IOException
-   * @throws InterruptedException
    */
   @Test
   public void testRunDoubleMemStoreCompactors() throws IOException, InterruptedException {
@@ -1519,7 +1505,7 @@ public class TestHStore {
 
   @Test
   public void testAge() throws IOException {
-    long currentTime = System.currentTimeMillis();
+    long currentTime = EnvironmentEdgeManager.currentTime();
     ManualEnvironmentEdge edge = new ManualEnvironmentEdge();
     edge.setValue(currentTime);
     EnvironmentEdgeManager.injectEdge(edge);
@@ -1607,7 +1593,7 @@ public class TestHStore {
     // Set the lower threshold to invoke the "MERGE" policy
     MyStore store = initMyStore(name.getMethodName(), conf, new MyStoreHook() {});
     MemStoreSizing memStoreSizing = new NonThreadSafeMemStoreSizing();
-    long ts = System.currentTimeMillis();
+    long ts = EnvironmentEdgeManager.currentTime();
     long seqID = 1L;
     // Add some data to the region and do some flushes
     for (int i = 1; i < 10; i++) {
@@ -1731,6 +1717,210 @@ public class TestHStore {
     assertArrayEquals(table, hFileContext.getTableName());
   }
 
+  // This test is for HBASE-26026, HBase Write be stuck when active segment has no cell
+  // but its dataSize exceeds inmemoryFlushSize
+  @Test
+  public void testCompactingMemStoreNoCellButDataSizeExceedsInmemoryFlushSize()
+      throws IOException, InterruptedException {
+    Configuration conf = HBaseConfiguration.create();
+
+    byte[] smallValue = new byte[3];
+    byte[] largeValue = new byte[9];
+    final long timestamp = EnvironmentEdgeManager.currentTime();
+    final long seqId = 100;
+    final Cell smallCell = createCell(qf1, timestamp, seqId, smallValue);
+    final Cell largeCell = createCell(qf2, timestamp, seqId, largeValue);
+    int smallCellByteSize = MutableSegment.getCellLength(smallCell);
+    int largeCellByteSize = MutableSegment.getCellLength(largeCell);
+    int flushByteSize = smallCellByteSize + largeCellByteSize - 2;
+
+    // set CompactingMemStore.inmemoryFlushSize to flushByteSize.
+    conf.set(HStore.MEMSTORE_CLASS_NAME, MyCompactingMemStore2.class.getName());
+    conf.setDouble(CompactingMemStore.IN_MEMORY_FLUSH_THRESHOLD_FACTOR_KEY, 0.005);
+    conf.set(HConstants.HREGION_MEMSTORE_FLUSH_SIZE, String.valueOf(flushByteSize * 200));
+
+    init(name.getMethodName(), conf, ColumnFamilyDescriptorBuilder.newBuilder(family)
+        .setInMemoryCompaction(MemoryCompactionPolicy.BASIC).build());
+
+    MyCompactingMemStore2 myCompactingMemStore = ((MyCompactingMemStore2) store.memstore);
+    assertTrue((int) (myCompactingMemStore.getInmemoryFlushSize()) == flushByteSize);
+    myCompactingMemStore.smallCellPreUpdateCounter.set(0);
+    myCompactingMemStore.largeCellPreUpdateCounter.set(0);
+
+    final AtomicReference<Throwable> exceptionRef = new AtomicReference<Throwable>();
+    Thread smallCellThread = new Thread(() -> {
+      try {
+        store.add(smallCell, new NonThreadSafeMemStoreSizing());
+      } catch (Throwable exception) {
+        exceptionRef.set(exception);
+      }
+    });
+    smallCellThread.setName(MyCompactingMemStore2.SMALL_CELL_THREAD_NAME);
+    smallCellThread.start();
+
+    String oldThreadName = Thread.currentThread().getName();
+    try {
+      /**
+       * 1.smallCellThread enters CompactingMemStore.checkAndAddToActiveSize first, then
+       * largeCellThread enters CompactingMemStore.checkAndAddToActiveSize, and then largeCellThread
+       * invokes flushInMemory.
+       * <p/>
+       * 2. After largeCellThread finished CompactingMemStore.flushInMemory method, smallCellThread
+       * can add cell to currentActive . That is to say when largeCellThread called flushInMemory
+       * method, CompactingMemStore.active has no cell.
+       */
+      Thread.currentThread().setName(MyCompactingMemStore2.LARGE_CELL_THREAD_NAME);
+      store.add(largeCell, new NonThreadSafeMemStoreSizing());
+      smallCellThread.join();
+
+      for (int i = 0; i < 100; i++) {
+        long currentTimestamp = timestamp + 100 + i;
+        Cell cell = createCell(qf2, currentTimestamp, seqId, largeValue);
+        store.add(cell, new NonThreadSafeMemStoreSizing());
+      }
+    } finally {
+      Thread.currentThread().setName(oldThreadName);
+    }
+
+    assertTrue(exceptionRef.get() == null);
+
+  }
+
+  // This test is for HBASE-26210, HBase Write be stuck when there is cell which size exceeds
+  // InmemoryFlushSize
+  @Test(timeout = 60000)
+  public void testCompactingMemStoreCellExceedInmemoryFlushSize()
+      throws IOException, InterruptedException {
+    Configuration conf = HBaseConfiguration.create();
+    conf.set(HStore.MEMSTORE_CLASS_NAME, CompactingMemStore.class.getName());
+
+    init(name.getMethodName(), conf, ColumnFamilyDescriptorBuilder.newBuilder(family)
+        .setInMemoryCompaction(MemoryCompactionPolicy.BASIC).build());
+
+    int size = (int) ((CompactingMemStore) store.memstore).getInmemoryFlushSize();
+    byte[] value = new byte[size + 1];
+
+    MemStoreSizing memStoreSizing = new NonThreadSafeMemStoreSizing();
+    long timestamp = EnvironmentEdgeManager.currentTime();
+    long seqId = 100;
+    Cell cell = createCell(qf1, timestamp, seqId, value);
+    int cellByteSize = MutableSegment.getCellLength(cell);
+    store.add(cell, memStoreSizing);
+    assertTrue(memStoreSizing.getCellsCount() == 1);
+    assertTrue(memStoreSizing.getDataSize() == cellByteSize);
+  }
+
+  // This test is for HBASE-26210 also, test write large cell and small cell concurrently when
+  // InmemoryFlushSize is smaller,equal with and larger than cell size.
+  @Test
+  public void testCompactingMemStoreWriteLargeCellAndSmallCellConcurrently()
+      throws IOException, InterruptedException {
+    doWriteTestLargeCellAndSmallCellConcurrently(
+      (smallCellByteSize, largeCellByteSize) -> largeCellByteSize - 1);
+    doWriteTestLargeCellAndSmallCellConcurrently(
+      (smallCellByteSize, largeCellByteSize) -> largeCellByteSize);
+    doWriteTestLargeCellAndSmallCellConcurrently(
+      (smallCellByteSize, largeCellByteSize) -> smallCellByteSize + largeCellByteSize - 1);
+    doWriteTestLargeCellAndSmallCellConcurrently(
+      (smallCellByteSize, largeCellByteSize) -> smallCellByteSize + largeCellByteSize);
+    doWriteTestLargeCellAndSmallCellConcurrently(
+      (smallCellByteSize, largeCellByteSize) -> smallCellByteSize + largeCellByteSize + 1);
+  }
+
+  private void doWriteTestLargeCellAndSmallCellConcurrently(
+      IntBinaryOperator getFlushByteSize)
+      throws IOException, InterruptedException {
+
+    Configuration conf = HBaseConfiguration.create();
+
+    byte[] smallValue = new byte[3];
+    byte[] largeValue = new byte[100];
+    final long timestamp = EnvironmentEdgeManager.currentTime();
+    final long seqId = 100;
+    final Cell smallCell = createCell(qf1, timestamp, seqId, smallValue);
+    final Cell largeCell = createCell(qf2, timestamp, seqId, largeValue);
+    int smallCellByteSize = MutableSegment.getCellLength(smallCell);
+    int largeCellByteSize = MutableSegment.getCellLength(largeCell);
+    int flushByteSize = getFlushByteSize.applyAsInt(smallCellByteSize, largeCellByteSize);
+    boolean flushByteSizeLessThanSmallAndLargeCellSize =
+        flushByteSize < (smallCellByteSize + largeCellByteSize);
+
+    conf.set(HStore.MEMSTORE_CLASS_NAME, MyCompactingMemStore3.class.getName());
+    conf.setDouble(CompactingMemStore.IN_MEMORY_FLUSH_THRESHOLD_FACTOR_KEY, 0.005);
+    conf.set(HConstants.HREGION_MEMSTORE_FLUSH_SIZE, String.valueOf(flushByteSize * 200));
+
+
+    init(name.getMethodName(), conf, ColumnFamilyDescriptorBuilder.newBuilder(family)
+        .setInMemoryCompaction(MemoryCompactionPolicy.BASIC).build());
+
+    MyCompactingMemStore3 myCompactingMemStore = ((MyCompactingMemStore3) store.memstore);
+    assertTrue((int) (myCompactingMemStore.getInmemoryFlushSize()) == flushByteSize);
+    myCompactingMemStore.disableCompaction();
+    if (flushByteSizeLessThanSmallAndLargeCellSize) {
+      myCompactingMemStore.flushByteSizeLessThanSmallAndLargeCellSize = true;
+    } else {
+      myCompactingMemStore.flushByteSizeLessThanSmallAndLargeCellSize = false;
+    }
+
+
+    final ThreadSafeMemStoreSizing memStoreSizing = new ThreadSafeMemStoreSizing();
+    final AtomicLong totalCellByteSize = new AtomicLong(0);
+    final AtomicReference<Throwable> exceptionRef = new AtomicReference<Throwable>();
+    Thread smallCellThread = new Thread(() -> {
+      try {
+        for (int i = 1; i <= MyCompactingMemStore3.CELL_COUNT; i++) {
+          long currentTimestamp = timestamp + i;
+          Cell cell = createCell(qf1, currentTimestamp, seqId, smallValue);
+          totalCellByteSize.addAndGet(MutableSegment.getCellLength(cell));
+          store.add(cell, memStoreSizing);
+        }
+      } catch (Throwable exception) {
+        exceptionRef.set(exception);
+
+      }
+    });
+    smallCellThread.setName(MyCompactingMemStore3.SMALL_CELL_THREAD_NAME);
+    smallCellThread.start();
+
+    String oldThreadName = Thread.currentThread().getName();
+    try {
+      /**
+       * When flushByteSizeLessThanSmallAndLargeCellSize is true:
+       * </p>
+       * 1.smallCellThread enters MyCompactingMemStore3.checkAndAddToActiveSize first, then
+       * largeCellThread enters MyCompactingMemStore3.checkAndAddToActiveSize, and then
+       * largeCellThread invokes flushInMemory.
+       * <p/>
+       * 2. After largeCellThread finished CompactingMemStore.flushInMemory method, smallCellThread
+       * can run into MyCompactingMemStore3.checkAndAddToActiveSize again.
+       * <p/>
+       * When flushByteSizeLessThanSmallAndLargeCellSize is false: smallCellThread and
+       * largeCellThread concurrently write one cell and wait each other, and then write another
+       * cell etc.
+       */
+      Thread.currentThread().setName(MyCompactingMemStore3.LARGE_CELL_THREAD_NAME);
+      for (int i = 1; i <= MyCompactingMemStore3.CELL_COUNT; i++) {
+        long currentTimestamp = timestamp + i;
+        Cell cell = createCell(qf2, currentTimestamp, seqId, largeValue);
+        totalCellByteSize.addAndGet(MutableSegment.getCellLength(cell));
+        store.add(cell, memStoreSizing);
+      }
+      smallCellThread.join();
+
+      assertTrue(exceptionRef.get() == null);
+      assertTrue(memStoreSizing.getCellsCount() == (MyCompactingMemStore3.CELL_COUNT * 2));
+      assertTrue(memStoreSizing.getDataSize() == totalCellByteSize.get());
+      if (flushByteSizeLessThanSmallAndLargeCellSize) {
+        assertTrue(myCompactingMemStore.flushCounter.get() == MyCompactingMemStore3.CELL_COUNT);
+      } else {
+        assertTrue(
+          myCompactingMemStore.flushCounter.get() <= (MyCompactingMemStore3.CELL_COUNT - 1));
+      }
+    } finally {
+      Thread.currentThread().setName(oldThreadName);
+    }
+  }
+
   private HStoreFile mockStoreFileWithLength(long length) {
     HStoreFile sf = mock(HStoreFile.class);
     StoreFileReader sfr = mock(StoreFileReader.class);
@@ -1832,7 +2022,7 @@ public class TestHStore {
       return new ArrayList<>(capacity);
     }
     @Override
-    protected void pushActiveToPipeline(MutableSegment active) {
+    protected void pushActiveToPipeline(MutableSegment active, boolean checkEmpty) {
       if (START_TEST.get()) {
         try {
           getScannerLatch.await();
@@ -1841,7 +2031,7 @@ public class TestHStore {
         }
       }
 
-      super.pushActiveToPipeline(active);
+      super.pushActiveToPipeline(active, checkEmpty);
       if (START_TEST.get()) {
         snapshotLatch.countDown();
       }
@@ -1929,5 +2119,171 @@ public class TestHStore {
 
     @Override
     public List<T> subList(int fromIndex, int toIndex) {return delegatee.subList(fromIndex, toIndex);}
+  }
+
+  public static class MyCompactingMemStore2 extends CompactingMemStore {
+    private static final String LARGE_CELL_THREAD_NAME = "largeCellThread";
+    private static final String SMALL_CELL_THREAD_NAME = "smallCellThread";
+    private final CyclicBarrier preCyclicBarrier = new CyclicBarrier(2);
+    private final CyclicBarrier postCyclicBarrier = new CyclicBarrier(2);
+    private final AtomicInteger largeCellPreUpdateCounter = new AtomicInteger(0);
+    private final AtomicInteger smallCellPreUpdateCounter = new AtomicInteger(0);
+
+    public MyCompactingMemStore2(Configuration conf, CellComparatorImpl cellComparator,
+        HStore store, RegionServicesForStores regionServices,
+        MemoryCompactionPolicy compactionPolicy) throws IOException {
+      super(conf, cellComparator, store, regionServices, compactionPolicy);
+    }
+
+    @Override
+    protected boolean checkAndAddToActiveSize(MutableSegment currActive, Cell cellToAdd,
+        MemStoreSizing memstoreSizing) {
+      if (Thread.currentThread().getName().equals(LARGE_CELL_THREAD_NAME)) {
+        int currentCount = largeCellPreUpdateCounter.incrementAndGet();
+        if (currentCount <= 1) {
+          try {
+            /**
+             * smallCellThread enters CompactingMemStore.checkAndAddToActiveSize first, then
+             * largeCellThread enters CompactingMemStore.checkAndAddToActiveSize, and then
+             * largeCellThread invokes flushInMemory.
+             */
+            preCyclicBarrier.await();
+          } catch (Throwable e) {
+            throw new RuntimeException(e);
+          }
+        }
+      }
+
+      boolean returnValue = super.checkAndAddToActiveSize(currActive, cellToAdd, memstoreSizing);
+      if (Thread.currentThread().getName().equals(SMALL_CELL_THREAD_NAME)) {
+        try {
+          preCyclicBarrier.await();
+        } catch (Throwable e) {
+          throw new RuntimeException(e);
+        }
+      }
+      return returnValue;
+    }
+
+    @Override
+    protected void doAdd(MutableSegment currentActive, Cell cell, MemStoreSizing memstoreSizing) {
+      if (Thread.currentThread().getName().equals(SMALL_CELL_THREAD_NAME)) {
+        try {
+          /**
+           * After largeCellThread finished flushInMemory method, smallCellThread can add cell to
+           * currentActive . That is to say when largeCellThread called flushInMemory method,
+           * currentActive has no cell.
+           */
+          postCyclicBarrier.await();
+        } catch (Throwable e) {
+          throw new RuntimeException(e);
+        }
+      }
+      super.doAdd(currentActive, cell, memstoreSizing);
+    }
+
+    @Override
+    protected void flushInMemory(MutableSegment currentActiveMutableSegment) {
+      super.flushInMemory(currentActiveMutableSegment);
+      if (Thread.currentThread().getName().equals(LARGE_CELL_THREAD_NAME)) {
+        if (largeCellPreUpdateCounter.get() <= 1) {
+          try {
+            postCyclicBarrier.await();
+          } catch (Throwable e) {
+            throw new RuntimeException(e);
+          }
+        }
+      }
+    }
+
+  }
+
+  public static class MyCompactingMemStore3 extends CompactingMemStore {
+    private static final String LARGE_CELL_THREAD_NAME = "largeCellThread";
+    private static final String SMALL_CELL_THREAD_NAME = "smallCellThread";
+
+    private final CyclicBarrier preCyclicBarrier = new CyclicBarrier(2);
+    private final CyclicBarrier postCyclicBarrier = new CyclicBarrier(2);
+    private final AtomicInteger flushCounter = new AtomicInteger(0);
+    private static final int CELL_COUNT = 5;
+    private boolean flushByteSizeLessThanSmallAndLargeCellSize = true;
+
+    public MyCompactingMemStore3(Configuration conf, CellComparatorImpl cellComparator,
+        HStore store, RegionServicesForStores regionServices,
+        MemoryCompactionPolicy compactionPolicy) throws IOException {
+      super(conf, cellComparator, store, regionServices, compactionPolicy);
+    }
+
+    @Override
+    protected boolean checkAndAddToActiveSize(MutableSegment currActive, Cell cellToAdd,
+        MemStoreSizing memstoreSizing) {
+      if (!flushByteSizeLessThanSmallAndLargeCellSize) {
+        return super.checkAndAddToActiveSize(currActive, cellToAdd, memstoreSizing);
+      }
+      if (Thread.currentThread().getName().equals(LARGE_CELL_THREAD_NAME)) {
+        try {
+          preCyclicBarrier.await();
+        } catch (Throwable e) {
+          throw new RuntimeException(e);
+        }
+      }
+
+      boolean returnValue = super.checkAndAddToActiveSize(currActive, cellToAdd, memstoreSizing);
+      if (Thread.currentThread().getName().equals(SMALL_CELL_THREAD_NAME)) {
+        try {
+          preCyclicBarrier.await();
+        } catch (Throwable e) {
+          throw new RuntimeException(e);
+        }
+      }
+      return returnValue;
+    }
+
+    @Override
+    protected void postUpdate(MutableSegment currentActiveMutableSegment) {
+      super.postUpdate(currentActiveMutableSegment);
+      if (!flushByteSizeLessThanSmallAndLargeCellSize) {
+        try {
+          postCyclicBarrier.await();
+        } catch (Throwable e) {
+          throw new RuntimeException(e);
+        }
+        return;
+      }
+
+      if (Thread.currentThread().getName().equals(SMALL_CELL_THREAD_NAME)) {
+        try {
+          postCyclicBarrier.await();
+        } catch (Throwable e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+
+    @Override
+    protected void flushInMemory(MutableSegment currentActiveMutableSegment) {
+      super.flushInMemory(currentActiveMutableSegment);
+      flushCounter.incrementAndGet();
+      if (!flushByteSizeLessThanSmallAndLargeCellSize) {
+        return;
+      }
+
+      assertTrue(Thread.currentThread().getName().equals(LARGE_CELL_THREAD_NAME));
+      try {
+        postCyclicBarrier.await();
+      } catch (Throwable e) {
+        throw new RuntimeException(e);
+      }
+
+    }
+
+    void disableCompaction() {
+      allowCompaction.set(false);
+    }
+
+    void enableCompaction() {
+      allowCompaction.set(true);
+    }
+
   }
 }

@@ -30,6 +30,7 @@ import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.BalancerDecision;
 import org.apache.hadoop.hbase.client.BalancerRejection;
+import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.conf.ConfigurationObserver;
@@ -48,11 +49,21 @@ public interface ClusterInfoProvider extends ConfigurationObserver {
   Configuration getConfiguration();
 
   /**
+   * Returns a reference to the cluster's connection.
+   */
+  Connection getConnection();
+
+  /**
    * Get all the regions of this cluster.
    * <p/>
    * Used to refresh region block locations on HDFS.
    */
   List<RegionInfo> getAssignedRegions();
+
+  /**
+   * Unassign the given region.
+   */
+  void unassign(RegionInfo regionInfo) throws IOException;
 
   /**
    * Get the table descriptor for the given table.
@@ -76,6 +87,11 @@ public interface ClusterInfoProvider extends ConfigurationObserver {
    * Check whether we have region replicas enabled for the tables of the given regions.
    */
   boolean hasRegionReplica(Collection<RegionInfo> regions) throws IOException;
+
+  /**
+   * Returns a copy of the internal list of online servers.
+   */
+  List<ServerName> getOnlineServersList();
 
   /**
    * Returns a copy of the internal list of online servers matched by the given {@code filter}.
@@ -104,4 +120,9 @@ public interface ClusterInfoProvider extends ConfigurationObserver {
    * Record the given balancer rejection.
    */
   void recordBalancerRejection(Supplier<BalancerRejection> rejection);
+
+  /**
+   * Returns server metrics of the given server if serverName is known else null
+   */
+  ServerMetrics getLoad(ServerName serverName);
 }

@@ -31,12 +31,13 @@ import org.apache.hadoop.hbase.ServerName;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.BalancerDecision;
 import org.apache.hadoop.hbase.client.BalancerRejection;
+import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 
 public class DummyClusterInfoProvider implements ClusterInfoProvider {
 
-  private final Configuration conf;
+  private volatile Configuration conf;
 
   public DummyClusterInfoProvider(Configuration conf) {
     this.conf = conf;
@@ -48,8 +49,17 @@ public class DummyClusterInfoProvider implements ClusterInfoProvider {
   }
 
   @Override
+  public Connection getConnection() {
+    return null;
+  }
+
+  @Override
   public List<RegionInfo> getAssignedRegions() {
     return Collections.emptyList();
+  }
+
+  @Override
+  public void unassign(RegionInfo regionInfo) throws IOException {
   }
 
   @Override
@@ -71,6 +81,11 @@ public class DummyClusterInfoProvider implements ClusterInfoProvider {
   @Override
   public boolean hasRegionReplica(Collection<RegionInfo> regions) throws IOException {
     return false;
+  }
+
+  @Override
+  public List<ServerName> getOnlineServersList() {
+    return Collections.emptyList();
   }
 
   @Override
@@ -99,5 +114,11 @@ public class DummyClusterInfoProvider implements ClusterInfoProvider {
 
   @Override
   public void onConfigurationChange(Configuration conf) {
+    this.conf = conf;
+  }
+
+  @Override
+  public ServerMetrics getLoad(ServerName serverName) {
+    return null;
   }
 }

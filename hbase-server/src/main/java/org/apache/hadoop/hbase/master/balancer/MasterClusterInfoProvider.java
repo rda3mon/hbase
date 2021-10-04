@@ -33,6 +33,7 @@ import org.apache.hadoop.hbase.TableDescriptors;
 import org.apache.hadoop.hbase.TableName;
 import org.apache.hadoop.hbase.client.BalancerDecision;
 import org.apache.hadoop.hbase.client.BalancerRejection;
+import org.apache.hadoop.hbase.client.Connection;
 import org.apache.hadoop.hbase.client.RegionInfo;
 import org.apache.hadoop.hbase.client.TableDescriptor;
 import org.apache.hadoop.hbase.master.MasterServices;
@@ -89,9 +90,22 @@ public class MasterClusterInfoProvider implements ClusterInfoProvider {
   }
 
   @Override
+  public Connection getConnection() {
+    return services.getConnection();
+  }
+
+  @Override
   public List<RegionInfo> getAssignedRegions() {
     AssignmentManager am = services.getAssignmentManager();
     return am != null ? am.getAssignedRegions() : Collections.emptyList();
+  }
+
+  @Override
+  public void unassign(RegionInfo regionInfo) throws IOException {
+    AssignmentManager am = services.getAssignmentManager();
+    if (am != null) {
+      am.unassign(regionInfo);
+    }
   }
 
   @Override
@@ -119,6 +133,12 @@ public class MasterClusterInfoProvider implements ClusterInfoProvider {
       }
     }
     return false;
+  }
+
+  @Override
+  public List<ServerName> getOnlineServersList() {
+    ServerManager sm = services.getServerManager();
+    return sm != null ? sm.getOnlineServersList() : Collections.emptyList();
   }
 
   @Override
@@ -164,10 +184,15 @@ public class MasterClusterInfoProvider implements ClusterInfoProvider {
     }
   }
 
+  @Override
+  public ServerMetrics getLoad(ServerName serverName) {
+    ServerManager sm = services.getServerManager();
+    return sm != null ? sm.getLoad(serverName) : null;
+  }
+
   @RestrictedApi(explanation = "Should only be called in tests", link = "",
     allowedOnPath = ".*/src/test/.*")
   NamedQueueRecorder getNamedQueueRecorder() {
     return namedQueueRecorder;
   }
-
 }
